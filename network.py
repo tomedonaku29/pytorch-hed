@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import torch
+from torchvision.transforms import CenterCrop, Pad
 
 
 assert(int(str('').join(torch.__version__.split('.')[0:2])) >= 13) # requires at least pytorch version 1.3.0
@@ -71,10 +72,10 @@ class Network(torch.nn.Module):
         self.load_state_dict({ strKey.replace('module', 'net'): tenWeight for strKey, tenWeight in torch.hub.load_state_dict_from_url(url='http://content.sniklaus.com/github/pytorch-hed/network-' + model + '.pytorch', file_name='hed-' + model).items() })
     # end
 
-    def forward(self, tenInput):
-        tenBlue = (tenInput[:, 0:1, :, :] * 255.0) - 104.00698793
-        tenGreen = (tenInput[:, 1:2, :, :] * 255.0) - 116.66876762
-        tenRed = (tenInput[:, 2:3, :, :] * 255.0) - 122.67891434
+    def forward(self, tenInput, shift):
+        tenBlue = (tenInput[:, 0:1, :, :] * 255.0) - shift
+        tenGreen = (tenInput[:, 1:2, :, :] * 255.0) - shift
+        tenRed = (tenInput[:, 2:3, :, :] * 255.0) - shift
 
         tenInput = torch.cat([ tenBlue, tenGreen, tenRed ], 1)
 
@@ -104,18 +105,23 @@ netNetwork = None
 
 ##########################################################
 
-def estimate(tenInput):
+def estimate(tenOrig):
     global netNetwork
 
     if netNetwork is None:
         netNetwork = Network('bsds500').cuda().eval()
     # end
 
+    intPadWidth = 32
+    tenInput = Pad(intPadWidth, padding_mode='edge')(tenOrig).float()
     intWidth = tenInput.shape[2]
     intHeight = tenInput.shape[1]
 
-    # assert(intWidth == 480) # remember that there is no guarantee for correctness, comment this line out if you acknowledge this and want to continue
-    # assert(intHeight == 320) # remember that there is no guarantee for correctness, comment this line out if you acknowledge this and want to continue
+    tenOutput = torch.zeros(tenOrig.shape)
+    arrShift = [100, 150, 200]
+    for intShift in arrShift:
+        tenInf = netNetwork(tenInput.cuda().view(1, 3, intHeight, intWidth), intShift)[0, :, :, :].cpu()
+        tenOutput = torch.maximum(tenOutput, CenterCrop(tenOrig.shape[1:3])(tenInf).float())
 
-    return netNetwork(tenInput.cuda().view(1, 3, intHeight, intWidth))[0, :, :, :].cpu()
+    return tenOutput
 # end
